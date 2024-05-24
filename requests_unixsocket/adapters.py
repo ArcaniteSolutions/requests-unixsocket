@@ -1,23 +1,13 @@
 import socket
 
 from requests.adapters import HTTPAdapter
-from requests.compat import urlparse, unquote
-
-try:
-    import http.client as httplib
-except ImportError:
-    import httplib
-
-try:
-    from requests.packages import urllib3
-except ImportError:
-    import urllib3
+from requests.compat import unquote, urlparse
+import urllib3
 
 
 # The following was adapted from some code from docker-py
 # https://github.com/docker/docker-py/blob/master/docker/transport/unixconn.py
-class UnixHTTPConnection(httplib.HTTPConnection, object):
-
+class UnixHTTPConnection(urllib3.connection.HTTPConnection, object):
     def __init__(self, unix_socket_url, timeout=60):
         """Create an HTTP connection to a unix domain socket
 
@@ -25,7 +15,7 @@ class UnixHTTPConnection(httplib.HTTPConnection, object):
         netloc is a percent-encoded path to a unix domain socket. E.g.:
         'http+unix://%2Ftmp%2Fprofilesvc.sock/status/pid'
         """
-        super(UnixHTTPConnection, self).__init__('localhost', timeout=timeout)
+        super(UnixHTTPConnection, self).__init__("localhost", timeout=timeout)
         self.unix_socket_url = unix_socket_url
         self.timeout = timeout
         self.sock = None
@@ -43,10 +33,8 @@ class UnixHTTPConnection(httplib.HTTPConnection, object):
 
 
 class UnixHTTPConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
-
     def __init__(self, socket_path, timeout=60):
-        super(UnixHTTPConnectionPool, self).__init__(
-            'localhost', timeout=timeout)
+        super(UnixHTTPConnectionPool, self).__init__("localhost", timeout=timeout)
         self.socket_path = socket_path
         self.timeout = timeout
 
@@ -55,7 +43,6 @@ class UnixHTTPConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
 
 
 class UnixAdapter(HTTPAdapter):
-
     def __init__(self, timeout=60, pool_connections=25, *args, **kwargs):
         super(UnixAdapter, self).__init__(*args, **kwargs)
         self.timeout = timeout
@@ -63,13 +50,18 @@ class UnixAdapter(HTTPAdapter):
             pool_connections, dispose_func=lambda p: p.close()
         )
 
+    # Fix for requests 2.32.2+: https://github.com/psf/requests/pull/6710
+    def get_connection_with_tls_context(self, request, verify, proxies=None, cert=None):
+        return self.get_connection(request.url, proxies)
+
     def get_connection(self, url, proxies=None):
         proxies = proxies or {}
         proxy = proxies.get(urlparse(url.lower()).scheme)
 
         if proxy:
-            raise ValueError('%s does not support specifying proxies'
-                             % self.__class__.__name__)
+            raise ValueError(
+                "%s does not support specifying proxies" % self.__class__.__name__
+            )
 
         with self.pools.lock:
             pool = self.pools.get(url)
